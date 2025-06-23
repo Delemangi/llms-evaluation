@@ -148,18 +148,20 @@ def get_consensus_ground_truth(df, prediction_columns) -> tuple[list[str], int, 
     consensus_count = 0
     original_count = 0
 
-    for idx, row in df.iterrows():
-        predictions = []
+    for _, row in df.iterrows():
+        real_predictions = []
         for col in prediction_columns:
             pred = row[col]
             if pd.notna(pred) and str(pred).strip():
-                predictions.append(str(pred).strip())
+                pred_clean = str(pred).strip()
+                if pred_clean not in ["Нема.", "Нема", ""]:
+                    real_predictions.append(pred_clean)
 
         consensus_found = False
-        if predictions:
-            pred_counts = Counter(predictions)
-            total_predictions = len(predictions)
-            threshold = max(total_predictions // 2, 5)
+        if real_predictions:
+            pred_counts = Counter(real_predictions)
+            total_real_predictions = len(real_predictions)
+            threshold = max(total_real_predictions * 0.33, 4)
 
             for pred, count in pred_counts.most_common():
                 if count >= threshold:
