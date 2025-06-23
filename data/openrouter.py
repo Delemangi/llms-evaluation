@@ -1,6 +1,7 @@
 import os
+import threading
 import time
-from typing import cast
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 import requests
@@ -11,13 +12,13 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "your_openrouter_api_key_he
 
 OPENROUTER_MODELS = {
     "deepseek-r1-distill-llama-70b": "deepseek/deepseek-r1-distill-llama-70b",
-    "deepseek-r1": "deepseek/deepseek-r1:free",
-    "gemma_3_27b": "google/gemma-3-27b-it:free",
-    "llama-4-maverick": "meta-llama/llama-4-maverick:free",
+    "deepseek-r1": "deepseek/deepseek-r1",
+    "gemma_3_27b": "google/gemma-3-27b-it",
+    "llama-4-maverick": "meta-llama/llama-4-maverick",
     "gemini-25-flash-preview-05-20": "google/gemini-2.5-flash-preview-05-20",
     "gemini-25-flash-lite-preview-06-17": "google/gemini-2.5-flash-lite-preview-06-17",
-    "mistral-7b-instruct": "mistralai/mistral-7b-instruct:free",
-    "llama-33-70b-instruct": "meta-llama/llama-3.3-70b-instruct:free",
+    "mistral-7b-instruct": "mistralai/mistral-7b-instruct",
+    "llama-33-70b-instruct": "meta-llama/llama-3.3-70b-instruct",
     "gpt-41-nano": "openai/gpt-4.1-nano",
     "gpt-41-mini": "openai/gpt-4.1-mini",
 }
@@ -35,6 +36,9 @@ MODELS_TO_TEST = [
     "gpt-41-mini",
 ]
 
+MAX_WORKERS = 5
+BATCH_SIZE = 20
+
 
 class OpenRouterClient:
     def __init__(self, api_key: str):
@@ -47,6 +51,7 @@ class OpenRouterClient:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
+        self.lock = threading.Lock()
 
     def query_model(self, question: str, context: str, model_id: str) -> str | None:
         prompt = build_prompt(question, context)
@@ -73,19 +78,44 @@ class OpenRouterClient:
                     return result["choices"][0]["message"]["content"].strip()
 
                 elif response.status_code == 429:
-                    time.sleep(2**attempt)
+                    thread_num = threading.current_thread().ident or 0
+                    wait_time = (2**attempt) + (thread_num % 5)
+                    time.sleep(wait_time)
                     continue
 
                 else:
-                    print(f"API Error {response.status_code}")
+                    with self.lock:
+                        print(f"API Error {response.status_code} for {model_id}")
                     break
 
             except Exception as e:
-                print(f"Request error: {e}")
+                with self.lock:
+                    print(f"Request error for {model_id}: {e}")
                 if attempt < 2:
                     time.sleep(1)
 
         return None
+
+
+def process_batch_concurrent(client, batch_data, model_id):
+    def process_single(item):
+        idx, question, context = item
+        return idx, client.query_model(question, context, model_id)
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {executor.submit(process_single, item): item for item in batch_data}
+
+        for future in as_completed(futures):
+            try:
+                idx, result = future.result()
+                results[idx] = result
+            except Exception as e:
+                item = futures[future]
+                print(f"Error processing item {item[0]}: {e}")
+                results[item[0]] = None
+
+    return results
 
 
 def main():
@@ -104,31 +134,45 @@ def main():
     client = OpenRouterClient(OPENROUTER_API_KEY)
 
     for model_name in MODELS_TO_TEST:
-        print(f"{model_name}: Starting predictions...")
-
         model_id = OPENROUTER_MODELS[model_name]
         column_name = f"{model_name}_prediction"
 
-        predictions = []
+        print(f"{model_name}: Starting predictions...")
+        start_time = time.time()
+
+        batch_data = []
         for idx, row in df.iterrows():
             if pd.isna(row["Question"]) or pd.isna(row["Document"]):
-                predictions.append(None)
                 continue
+            batch_data.append((idx, str(row["Question"]), str(row["Document"])))
 
-            prediction = client.query_model(
-                question=str(row["Question"]),
-                context=str(row["Document"]),
-                model_id=model_id,
+        predictions = [None] * len(df)
+
+        total_batches = (len(batch_data) + BATCH_SIZE - 1) // BATCH_SIZE
+
+        for batch_idx in range(0, len(batch_data), BATCH_SIZE):
+            batch = batch_data[batch_idx : batch_idx + BATCH_SIZE]
+            current_batch = (batch_idx // BATCH_SIZE) + 1
+
+            print(
+                f"{model_name}: Processing batch {current_batch} / {total_batches} ({len(batch)} items)"
             )
 
-            predictions.append(prediction)
+            batch_results = process_batch_concurrent(client, batch, model_id)
 
-            index = cast(int, idx)
+            for idx, result in batch_results.items():
+                predictions[idx] = result
 
-            if (index + 1) % 10 == 0:
-                print(f"{model_name}: {index + 1} / {len(df)}")
+            df[column_name] = predictions
+            df.to_csv(DATA_FILE, index=False, sep="\t", encoding="utf-8")
 
-        df[column_name] = predictions
+            print(f"{model_name}: Batch {current_batch} complete")
+
+            if current_batch < total_batches:
+                time.sleep(1)
+
+        successful = sum(1 for p in predictions if p is not None)
+        elapsed = time.time() - start_time
 
         not_in_document_count = 0
         valid_predictions = 0
@@ -142,12 +186,10 @@ def main():
                 if prediction.strip() not in document:
                     not_in_document_count += 1
 
-        df.to_csv(DATA_FILE, index=False, sep="\t", encoding="utf-8")
-
-        print(df.head())
-
-        successful = sum(1 for p in predictions if p is not None)
         print(f"{model_name}: Complete ({successful} / {len(df)} successful)")
+        print(
+            f"{model_name}: {elapsed:.1f} seconds ({successful / elapsed:.1f} requests/sec)"
+        )
         print(
             f"{model_name}: {not_in_document_count} / {valid_predictions} predictions not found in document ({not_in_document_count / valid_predictions * 100:.1f}%)"
             if valid_predictions > 0
