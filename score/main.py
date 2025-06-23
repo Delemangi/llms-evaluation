@@ -179,6 +179,12 @@ def get_consensus_ground_truth(df, prediction_columns) -> tuple[list[str], int, 
     return ground_truth, consensus_count, original_count
 
 
+def preprocess_predictions(predictions: list[str]) -> list[str]:
+    return [
+        "Нема." if pd.isna(p) or not str(p).strip() else str(p) for p in predictions
+    ]
+
+
 def main():
     df = pd.read_csv(DATA_FILE, sep="\t", encoding="utf-8")
 
@@ -211,6 +217,7 @@ def main():
         print(f"\nEvaluating {model_name}...")
 
         predictions = df[col].tolist()
+        predictions = preprocess_predictions(predictions)
         sources = df["Question"].tolist()
 
         bleu = calculate_bleu_score(ground_truth, predictions)
