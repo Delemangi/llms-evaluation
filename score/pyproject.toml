@@ -5,7 +5,9 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = "==3.11.11"
 dependencies = [
+    "bert-score>=0.3.13",
     "ipykernel>=6.29.5",
+    "nltk>=3.9.1",
     "numpy>=1.26.4",
     "pandas>=2.3.0",
     "sacrebleu>=2.5.1",
