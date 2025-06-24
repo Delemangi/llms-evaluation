@@ -3,6 +3,7 @@ from typing import cast
 
 import pandas as pd
 import requests
+
 from prompt import build_prompt
 
 DATA_FILE = "../data.csv"
@@ -16,7 +17,7 @@ MODELS_TO_TEST = ["domestic_yak_8b"]
 
 
 class OllamaClient:
-    def __init__(self, base_url: str = OLLAMA_HOST):
+    def __init__(self, base_url: str = OLLAMA_HOST) -> None:
         self.base_url = base_url
         self.api_url = f"{base_url}/api/generate"
 
@@ -46,7 +47,7 @@ class OllamaClient:
         return None
 
 
-def main():
+def main() -> None:
     df = pd.read_csv(DATA_FILE, sep="\t", encoding="utf-8")
 
     required_cols = ["Question", "Document"]
@@ -63,7 +64,7 @@ def main():
         ollama_model_id = MACEDONIAN_MODELS[model_name]
         column_name = f"{model_name}_prediction"
 
-        predictions = []
+        predictions: list[str | None] = []
         for idx, row in df.iterrows():
             if pd.isna(row["Question"]) or pd.isna(row["Document"]):
                 predictions.append(None)
@@ -87,7 +88,7 @@ def main():
         not_in_document_count = 0
         valid_predictions = 0
 
-        for idx, row in df.iterrows():
+        for _, row in df.iterrows():
             prediction = row[column_name]
             document = str(row["Document"])
 
@@ -105,7 +106,7 @@ def main():
         print(
             f"{model_name}: {not_in_document_count} / {valid_predictions} predictions not found in document ({not_in_document_count / valid_predictions * 100:.1f}%)"
             if valid_predictions > 0
-            else f"{model_name}: No valid predictions to check"
+            else f"{model_name}: No valid predictions to check",
         )
 
 
