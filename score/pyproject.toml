@@ -5,7 +5,6 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = "==3.11.11"
 dependencies = [
-    "bert-score>=0.3.13",
     "ipykernel>=6.29.5",
     "nltk>=3.9.1",
     "numpy>=1.26.4",
@@ -26,4 +25,66 @@ torch = [
 ]
 torchvision = [
     { index = "pytorch-cu118", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
+[dependency-groups]
+dev = ["mypy>=1.16.1", "pandas-stubs>=2.2.3.250527", "ruff>=0.12.0"]
+
+
+[tool.mypy]
+python_version = "3.13"
+plugins = ['pydantic.mypy']
+
+[tool.ruff]
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "F",
+    "E",
+    "W",
+    "I",
+    "N",
+    "UP",
+    "YTT",
+    "ANN",
+    "ASYNC",
+    "S",
+    "B",
+    "COM",
+    "C4",
+    "DTZ",
+    "FA",
+    "ISC",
+    "ICN",
+    "G",
+    "INP",
+    "PIE",
+    "PT",
+    "Q",
+    "RSE",
+    "RET",
+    "SLF",
+    "SIM",
+    "TID",
+    "PTH",
+    "PGH",
+    "PL",
+    "TRY",
+    "FLY",
+    "PERF",
+    "FURB",
+    "LOG",
+    "RUF",
+]
+ignore = [
+    "PLR2004",
+    "PLR0912",
+    "PLR0915",
+    "TRY003",
+    "PLR0911",
+    "RET504",
+    "RUF001",
+    "E501",
+    "PLR0913",
 ]
